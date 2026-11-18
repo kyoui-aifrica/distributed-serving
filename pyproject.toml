@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "H100 x2 vLLM parallelism lab"
 requires-python = "==3.12.*"
 dependencies = [
+    "matplotlib>=3.11.2",
+    "pandas>=3.1.1",
     "vllm==0.34.0; sys_platform == 'linux'",
 ]
 

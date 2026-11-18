@@ -5,13 +5,13 @@
 - [분산 서빙 요약](./references/SUMMARY.md)의 병렬화 기법(DP, TP, PP, EP)을 H100 80GB 2장에서 vLLM으로 띄워 주요 지표 비교
 - 비교 지표는 TTFT, ITL, 출력 처리량
 - 하이퍼스케일(TP + PP)은 서버 여러 대, PD 분리는 별도 구성이 필요해 제외
-- 전체 소요 시간 약 1.5시간 (구성 8개, 서버 기동 포함한 추정)
+- 전체 소요 시간 약 1.5시간 (구성 8개, 서버 기동 포함)
 
 | 실험 | 질문 | 모델 |
 | --- | --- | --- |
 | 1 | 1장으로 서빙할 수 있는 모델에 2장을 쓰면 기법별로 지표가 어떻게 달라지나 | Qwen3-14B |
 | 2 | 1장에 들어가지 않아 2장으로 서빙해야 하는 모델은 TP와 PP 중 무엇이 나은가 | Qwen2.5-72B-Instruct |
-| 3 | MoE 모델은 TP와 EP 중 어느 쪽으로 나누나 | Qwen3-30B-A3B |
+| 3 | MoE 모델을 2장으로 서빙할 때 가능한 옵션 중 무엇이 나은가 | Qwen3-30B-A3B |
 
 ## 2. 사전 준비
 
@@ -54,18 +54,18 @@ python -c "import torch; print(torch.__version__)"
 
 - `nvidia-smi topo -m`에서 GPU0과 GPU1이 만나는 칸이 `NV#`이면 NVLink 연결, 그 외는 PCIe 연결
 - TP와 EP는 레이어마다 GPU 간 통신이 있어서 연결 방식에 따라 결과가 달라짐
-- 출력은 `experiments/RESULTS.md` 1절에 기록
+- 출력은 [RESULTS.md 1절](experiments/RESULTS.md#1-실습-환경)에 기록
 
 ## 3. 측정 지표
 
-| 지표 | 결과 키 | 뜻 |
-| --- | --- | --- |
-| TTFT | `median_ttft_ms` | 요청부터 첫 토큰까지 시간 (첫 토큰을 받은 시각 − 요청을 보낸 시각) |
-| ITL | `median_itl_ms` | 출력 토큰 사이 간격 (토큰을 받은 시각 − 바로 앞 토큰을 받은 시각) |
-| 출력 처리량 | `output_throughput` | 초당 생성한 출력 토큰 수 (모든 요청의 출력 토큰 합 ÷ 첫 요청부터 마지막 요청이 끝날 때까지 걸린 시간) |
+| 지표 | 뜻 |
+| --- | --- |
+| TTFT | 요청부터 첫 토큰까지 시간 (첫 토큰을 받은 시각 − 요청을 보낸 시각) |
+| ITL | 출력 토큰 사이 간격 (토큰을 받은 시각 − 바로 앞 토큰을 받은 시각) |
+| 출력 처리량 | 초당 생성한 출력 토큰 수 (모든 요청의 출력 토큰 합 ÷ 첫 요청부터 마지막 요청이 끝날 때까지 걸린 시간) |
 
 - 프리필은 연산 성능, 디코드는 메모리 대역폭이 속도를 결정 ([요약 3.1절](references/SUMMARY.md#31-프리필과-디코드의-병목))
-- p99 값(`p99_ttft_ms`, `p99_itl_ms`)으로 가장 느린 1% 요청 확인
+- p99 값으로 가장 느린 1% 요청 확인
 
 ## 4. 실험 구성
 
@@ -76,10 +76,10 @@ python -c "import torch; print(torch.__version__)"
 | 서버 옵션 | `--max-model-len 8192 --gpu-memory-utilization 0.9 --no-enable-prefix-caching` |
 | 요청 | 입력 1024 토큰, 출력 256 토큰, 무작위 토큰 |
 | 동시 요청 수 | 1, 8, 32, 128 (실험 2는 1, 8, 16) |
+| 측정 요청 수 | 동시 요청 수의 4배, 최소 32개 |
 
-- 동시 요청 1은 지연(TTFT, ITL), 동시 요청 128은 처리량을 보는 지점
+- 동시 요청 1은 ITL, 동시 요청 128은 TTFT와 출력 처리량을 보는 지점
 - 예상 결과의 ITL은 동시 요청 1, 출력 처리량은 동시 요청 128 기준이고, ITL은 짧을수록 빠름
-- 프리픽스 캐시는 같은 입력을 재사용해 TTFT가 실제보다 낮게 나오지 않도록 끔
 
 ### 4.2. 실험 1. 1장으로 서빙할 수 있는 모델 (Qwen3-14B)
 
@@ -88,11 +88,11 @@ python -c "import torch; print(torch.__version__)"
 | `14b-1gpu` | 기준 | `CUDA_VISIBLE_DEVICES=0` | 비교 기준 |
 | `14b-dp2` | [DP](references/SUMMARY.md#21-데이터-병렬화-dp) | `--data-parallel-size 2` | 출력 처리량이 1장보다 높음 |
 | `14b-tp2` | [TP](references/SUMMARY.md#22-텐서-병렬화-tp) | `--tensor-parallel-size 2` | ITL이 1장보다 빠름 |
-| `14b-pp2` | [PP](references/SUMMARY.md#23-파이프라인-병렬화-pp) | `--pipeline-parallel-size 2` | ITL이 TP보다 느림 |
+| `14b-pp2` | [PP](references/SUMMARY.md#23-파이프라인-병렬화-pp) | `--pipeline-parallel-size 2` | 출력 처리량이 1장보다 높음 |
 
 - **DP**: 2장이 각자 요청을 받아 처리해 출력 처리량 증가
 - **TP**: 두 GPU가 가중치를 절반씩 동시에 읽어 ITL 감소
-- **PP**: 두 GPU가 가중치를 절반씩 차례로 읽어, 동시에 읽는 TP보다 ITL 증가
+- **PP**: 두 GPU가 레이어를 절반씩 맡아, 한 GPU가 요청 묶음을 처리하는 동안 다른 GPU가 다음 묶음을 처리해 출력 처리량 증가
 
 ### 4.3. 실험 2. 2장으로 서빙해야 하는 모델 (Qwen2.5-72B-Instruct)
 
@@ -113,6 +113,7 @@ python -c "import torch; print(torch.__version__)"
 
 - **TP**: 어텐션과 전문가를 모두 반씩 쪼개, 레이어마다 두 GPU의 결과를 합치는 통신 발생
 - **EP**: 어텐션은 GPU마다 다른 요청을 따로 처리하고 전문가만 GPU마다 64개씩 나눠 맡아, 어텐션 레이어의 통신이 없어 출력 처리량 증가
+- EP와 DP를 함께 쓰는 것은 vLLM의 MoE 권장 구성 ([문서](https://docs.vllm.ai/en/latest/serving/data_parallel_deployment.html))
 
 ## 5. 실행
 
@@ -136,5 +137,5 @@ cd experiments
 
 ## 6. 결과 보기
 
-- `experiments/analysis.ipynb`를 열어 모든 셀 실행
-- 표와 그래프를 보고 `experiments/RESULTS.md`에 실험별 결과 기록
+- [analysis.ipynb](experiments/analysis.ipynb)를 열어 모든 셀 실행
+- 표와 그래프를 보고 [RESULTS.md](experiments/RESULTS.md)에 실험별 결과 기록
